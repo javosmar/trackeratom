@@ -5,15 +5,9 @@
 //++++++++++++++++++++++++++++++++++++++
 
 #include <Arduino.h>
-#if defined(ESP8266)
-#include <ESP8266WiFi.h>
-#else
 #include <WiFi.h>
-#endif
-
 #include <WiFiManager.h>
 #include <Separador.h>
-#include <WiFiClientSecure.h>
 
 #include<stdio.h>
 #include<string.h>
@@ -34,8 +28,6 @@
 #define WIFI_PIN 0
 
 WiFiManager wifiManager;
-WiFiClientSecure client;
-WiFiClientSecure client2;
 
 //++++++++++++++++++++++++++++++++++++++
 //+++++++++ VARIABLES OTA ++++++++++++++
@@ -56,7 +48,7 @@ WiFiClient wifiClient;
 #define DEBUG false
 #define DEBUGPS true
 #define DEBUGSD true
-#define NAME_FILE "GPSLOG"
+String NAME_FILE = "/GPSLOG.txt";
 
 #define serialGprs Serial2
 #define serialGps Serial1
@@ -71,7 +63,10 @@ WiFiClient wifiClient;
 #define A9G_WAKE    22  //ESP12 GPIO13 A9/A9G WAKE
 #define A9G_LOWP    23  //ESP12 GPIO2 A9/A9G ENTER LOW POWER MODULE
 
-TaskHandle_t Task2;
+TaskHandle_t Task2, Task3;
+
+//unsigned long periodoUpdate = 604800000; //semana
+unsigned long periodoUpdate = 15000;
 
 //++++++++++++++++++++++++++++++++++++++
 //++++++++++++++ GPRS ++++++++++++++++++
@@ -121,20 +116,16 @@ int A9GPOWEROFF();
 int A9GENTERLOWPOWER();
 void A9GMQTTCONNECT();
 void iniciarSd();
-void toFile(String dataString, String dataString2);
+//void toFile(String dataString, String dataString2);
 static void print_date(TinyGPS &gps);
 void iniciarModem();
 void OTA_Updates();
 void sdInit();
 int GPSPOWERON();
-void logSDCard();
+void logSDCard(const char * path);
 String sendData(String command, const int timeout, boolean debug);
 void appendFile(fs::FS &fs, const char * path, const char * message);
-
-//*************************************
-//********      GLOBALS         *******
-//*************************************
-long milliseconds = 0;
+void buscarUpdate ();
 
 //++++++++++++++++++++++++++++++++++++++
 //++++++++++++++ LOOP2 +++++++++++++++++
@@ -148,6 +139,8 @@ void loop2( void * pvParameters ) {
       sdInit();
     }
     */
+
+    sdInit();
     for (unsigned long start = millis(); millis() - start < 1000;){
       while (serialGps.available()) {
         char c = serialGps.read();
@@ -172,7 +165,7 @@ void loop2( void * pvParameters ) {
       coordenada += ",";
       coordenada += String(flon, 6);
       velocidad = String(vel, 2);
-      logSDCard();
+      logSDCard(NAME_FILE.c_str());
     }
     coordenada.toCharArray(mensaje, 22);
     mensajeListo = true;
@@ -186,22 +179,130 @@ void loop2( void * pvParameters ) {
 }
 
 //++++++++++++++++++++++++++++++++++++++
+//++++++++++++++ LOOP3 +++++++++++++++++
+//++++++++++++++++++++++++++++++++++++++
+
+void loop3( void * pvParameters ) {
+  for (;;) {
+    delay(100);
+// if(no hay conexion GPRS){
+    for (char ch = ' '; ch <= 'z'; ch++) {
+      serialGprs.write(ch);
+    }
+    serialGprs.println("");
+    pinMode(A9G_PON, OUTPUT);//LOW LEVEL ACTIVE
+    digitalWrite(A9G_PON, HIGH);
+    Consola.println("El módulo se encenderá luego de 2 segundos...");
+    delay(2000);
+    if (A9GPOWERON() == 1) {
+      Consola.println("Módulo A9G encendido.");
+    }
+    delay(5000);
+    iniciarModem();
+    delay(1000);
+    A9GMQTTCONNECT();
+    delay(5000);
+    GPSPOWERON();
+    delay(5000);
+// }
+
+    //**************************************
+
+    if (millis() > tActual + periodoRefresh) {
+      //A9GMQTTCONNECT();
+      tActual = millis();
+      String topic = "/gps/coordenadas";
+      if(DEBUG){
+        Consola.println(topic);
+      }
+      String payload = mensaje;
+      if(DEBUG){
+        Consola.println(payload);
+      }
+      String staflag = "";
+      if(DEBUG){
+        Consola.println(staflag);
+      }
+      String ATCMD = "AT+MQTTPUB=";
+      String cammand = ATCMD + "\"" + topic + "\"" + "," + "\"" + payload + staflag + "\"" + ",0,0,0";
+      if(DEBUG){
+        Consola.println(cammand);
+      }
+      sendData(cammand, 1000, DEBUG);
+    }
+
+  }
+  vTaskDelay(10);
+}
+
+//++++++++++++++++++++++++++++++++++++++
 //++++++++++++++ LOOP ++++++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
 void loop() {
+  if(millis() > tActual + periodoUpdate){
+    tActual = millis();
+    //if ((WiFiMulti.run() == WL_CONNECTED)) {
+    if ((WiFi.status() == WL_CONNECTED)) {
+      if (updateAvailable){
+          Consola.println("Buscando actualizaciones disponibles.");
+          OTA_Updates();
+      }
+      Consola.println("no habia actualizaciones disponibles");
+    }
+    else {
+      Consola.println("error la conectarse a la red.");
+    }
+  }
 
-    //si el pulsador wifi esta en low, activamos el acces point de configuración
+    //si el pulsador wifi esta en low, activamos el access point de configuración
+  if ( digitalRead(WIFI_PIN) == LOW ) {
+    WiFiManager wifiManager;
+    wifiManager.startConfigPortal("IoToro","administrador");
+    Consola.println("Conectados a WiFi.");
+    Consola.println("Buscando actualizaciones disponibles.");
+    OTA_Updates();
+  }
+
+/*
+  for (char ch = ' '; ch <= 'z'; ch++) {
+    serialGprs.write(ch);
+  }
+  serialGprs.println("");
+  pinMode(A9G_PON, OUTPUT);//LOW LEVEL ACTIVE
+  digitalWrite(A9G_PON, HIGH);
+  Consola.println("El módulo se encenderá luego de 2 segundos...");
+  delay(2000);
+  sdInit();
+  if (A9GPOWERON() == 1) {
+    Consola.println("Módulo A9G encendido.");
+  }
+  delay(5000);
+  iniciarModem();
+  delay(1000);
+  A9GMQTTCONNECT();
+  delay(5000);
+  GPSPOWERON();
+  delay(5000);
+
+  if(millis() > tActual + periodoUpdate){
+    tActual = millis();
+    if ((WiFiMulti.run() == WL_CONNECTED)) {
+      if (updateAvailable){
+          Consola.println("Buscando actualizaciones disponibles.");
+          OTA_Updates();
+      }
+      wifiClient.stop();
+    }
+  }
+
+    //si el pulsador wifi esta en low, activamos el access point de configuración
   if ( digitalRead(WIFI_PIN) == LOW ) {
     WiFiManager wifiManager;
     wifiManager.startConfigPortal("IoToro");
-    Consola.println("Conectados a WiFi!!! :)");
-  }
-
-    //si estamos conectados a mqtt enviamos mensajes
-  if (millis() - milliseconds > 3000){
-    milliseconds = millis();
-
+    Consola.println("Conectados a WiFi.");
+    Consola.println("Buscando actualizaciones disponibles.");
+    OTA_Updates();
   }
 
   if (millis() > tActual + periodoRefresh) {
@@ -226,6 +327,7 @@ void loop() {
     }
     sendData(cammand, 1000, DEBUG);
   }
+  */
 }
 
 //++++++++++++++++++++++++++++++++++++++
@@ -233,21 +335,40 @@ void loop() {
 //++++++++++++++++++++++++++++++++++++++
 
 void setup() {
-  randomSeed(analogRead(0));
-  pinMode(WIFI_PIN,INPUT_PULLUP);
-  wifiManager.autoConnect("IoToro");
-  Consola.println("Conexión a WiFi exitosa!");
+  xTaskCreatePinnedToCore(
+    loop2,   /* Task function. */
+      "Task2",     /* name of task. */
+      10000,       /* Stack size of task */
+      NULL,        /* parameter of the task */
+      1,           /* priority of the task */
+      &Task2,      /* Task handle to keep track of created task */
+      0);          /* pin task to core 0 */
+  delay(500);
 
-  //-------------------------
-  //-------------------------
+  xTaskCreatePinnedToCore(
+    loop3,   /* Task function. */
+      "Task3",     /* name of task. */
+      10000,       /* Stack size of task */
+      NULL,        /* parameter of the task */
+      1,           /* priority of the task */
+      &Task3,      /* Task handle to keep track of created task */
+      1);          /* pin task to core 0 */
+  delay(500);
 
   serialGps.begin(GPS_BAUD_RATE);
   Consola.begin(BAUD_RATE);
   serialGprs.begin(A9_BAUD_RATE);
 
+  randomSeed(analogRead(0));
+  pinMode(WIFI_PIN,INPUT_PULLUP);
+
+  //wifiManager.autoConnect("IoToro");
+  //Consola.println("Conexión a WiFi exitosa!");
+
   //-------------------------
   //WiFi.mode(WIFI_STA);
   //WiFiMulti.addAP("Fibertel WiFi965 2.4GHz", "0043408372");
+  /*
   if ((WiFiMulti.run() == WL_CONNECTED)) {
     if (updateAvailable){
         Consola.println("Buscando actualizaciones disponibles.");
@@ -255,20 +376,15 @@ void setup() {
     }
     wifiClient.stop();
   }
+  */
   //-------------------------
-
+  /*
   for (char ch = ' '; ch <= 'z'; ch++) {
     serialGprs.write(ch);
   }
   serialGprs.println("");
-  /************************************/
   pinMode(A9G_PON, OUTPUT);//LOW LEVEL ACTIVE
-  pinMode(A9G_POFF, OUTPUT);//HIGH LEVEL ACTIVE
-  pinMode(A9G_LOWP, OUTPUT);//LOW LEVEL ACTIVE
-
   digitalWrite(A9G_PON, HIGH);
-  digitalWrite(A9G_POFF, LOW);
-  digitalWrite(A9G_LOWP, HIGH);
   Consola.println("El módulo se encenderá luego de 2 segundos...");
   delay(2000);
   sdInit();
@@ -282,19 +398,7 @@ void setup() {
   delay(5000);
   GPSPOWERON();
   delay(5000);
-  //iniciarSd();
-  //sdInit();
-
-  xTaskCreatePinnedToCore(
-    loop2,   /* Task function. */
-    "Task2",     /* name of task. */
-    10000,       /* Stack size of task */
-    NULL,        /* parameter of the task */
-    1,           /* priority of the task */
-    &Task2,      /* Task handle to keep track of created task */
-    0);          /* pin task to core 0 */
-  delay(500);
-
+  */
 }
 
 //++++++++++++++++++++++++++++++++++++++
@@ -432,10 +536,11 @@ void iniciarSd() {
   }
 }
 
+/*
 void toFile(String dataString, String dataString2) {
   String fileName = "/";
   fileName += NAME_FILE;
-  fileName += ".txt";
+  //fileName += ".txt";
   File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
     dataFile.print(dataString);
@@ -454,6 +559,7 @@ void toFile(String dataString, String dataString2) {
     }
   }
 }
+*/
 
 static void print_date(TinyGPS &gps) {
   int year;
@@ -473,8 +579,7 @@ static void print_date(TinyGPS &gps) {
   }
 }
 
-void iniciarModem()
-{
+void iniciarModem() {
   if (inicia == 1)
   {
     Consola.println(F(""));
@@ -521,16 +626,17 @@ void iniciarModem()
 //+++++++++++++ SD CARD ++++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
-void logSDCard() {
+void logSDCard(const char * path) {
   String dato = hora;
   dato += ",";
   dato += coordenada;
   dato += ",";
   dato += velocidad;
   dato += "\r\n";
-  appendFile(SD, "/data3.txt", dato.c_str());
-  Consola.print("Save data: ");
-  Consola.println(dato);
+  //appendFile(SD, "/data3.txt", dato.c_str());
+  appendFile(SD, path, dato.c_str());
+  //Consola.print("Save data: ");
+  //Consola.println(dato);
 }
 
 void writeFile(fs::FS &fs, const char * path, const char * message) {
@@ -581,11 +687,13 @@ void sdInit(){
     Consola.println("ERROR - SD card initialization failed!");
     return;
   }
-  File file = SD.open("/data3.txt");
+  //File file = SD.open("/data3.txt");
+  File file = SD.open(NAME_FILE.c_str());
   if(!file) {
     Consola.println("File doens't exist");
     Consola.println("Creating file...");
-    writeFile(SD, "/data3.txt", "Reading ID, Date, Hour, Temperature \r\n");
+    //writeFile(SD, "/data3.txt", "Fecha, Hora, Coordenadas, velocidad \r\n");
+    writeFile(SD, NAME_FILE.c_str(), "Fecha, Hora, Coordenadas, velocidad \r\n");
   }
   else {
     Consola.println("File already exists");
