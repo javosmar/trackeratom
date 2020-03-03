@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
-#include "FS.h"
+//#include "FS.h"
 #include "SD.h"
 #include <SPI.h>
 #include <TinyGsmClient.h>
@@ -28,7 +28,7 @@ WiFiManager wifiManager;
 //++++++++++++++++++++++++++++++++++++++
 
 String Cliente = "SH_Nodemcu_v2";                                               // Nombre de producción
-String NewVersion = "0.4";                                                      // Número de la próxima versión a la que se actualizará en el futuro
+String NewVersion = "0.7";                                                      // Número de la próxima versión a la que se actualizará en el futuro
 String url_server = "http://iotoro.000webhostapp.com/firms/" + Cliente;
 String url_sketch = url_server+"/"+Cliente+"_"+NewVersion+".bin";               // Ruta de la nueva versión, a la que se añade el número de la nueva versión
 bool updateAvailable = true;
@@ -42,7 +42,7 @@ WiFiClient wifiClient;
 #define DEBUGGPS false
 #define DEBUGSD false
 #define DEBUGGPRS false
-#define DEBUGWIFI true
+#define DEBUGWIFI false
 String NAME_FILE = "/GPSLOG.txt";
 
 #define serialGprs Serial2
@@ -57,6 +57,8 @@ String NAME_FILE = "/GPSLOG.txt";
 //#define A9G_POFF    2  //ESP12 GPIO15 A9/A9G POWOFF
 //#define A9G_WAKE    22  //ESP12 GPIO13 A9/A9G WAKE
 //#define A9G_LOWP    23  //ESP12 GPIO2 A9/A9G ENTER LOW POWER MODULE
+#define LED    0
+#define LED2    2
 
 //unsigned long periodoUpdate = 604800000; // periodo de actualización semanal
 unsigned long periodoUpdate = 15000;
@@ -116,6 +118,7 @@ void A9GMQTTCONNECT();
 //void iniciarSd();
 static void print_date(TinyGPS &gps);
 void iniciarModem();
+void iniciarAPN();
 void OTA_Updates();
 void sdInit();
 int GPSPOWERON();
@@ -204,6 +207,7 @@ void loop3( void * pvParameters ) {
   while(millis() - now < 5000);
   //delay(5000);
   iniciarModem();
+  iniciarAPN();
   now = millis();
   while(millis() - now < 1000);
   //delay(1000);
@@ -218,6 +222,32 @@ void loop3( void * pvParameters ) {
     // }
     //**************************************
   for (;;) {
+    if(modem.isNetworkConnected()){
+      if(DEBUGGPRS){
+        Consola.println("conectado a la red claro");
+      }
+      digitalWrite(LED,HIGH);
+    }
+    else {
+      if(DEBUGGPRS){
+        Consola.println("no conectado a la red claro");
+      }
+      iniciarModem();
+      digitalWrite(LED,LOW);
+    }
+    if(modem.isGprsConnected()){
+      if(DEBUGGPRS){
+        Consola.println("APN conectada");
+      }
+      digitalWrite(LED2,HIGH);
+    }
+    else {
+      if(DEBUGGPRS){
+        Consola.println("APN no conectada");
+      }
+      iniciarAPN();
+      digitalWrite(LED2,LOW);
+    }
     if (millis() > tActual + periodoRefresh) {
       //A9GMQTTCONNECT();
       tActual = millis();
@@ -246,7 +276,7 @@ void loop3( void * pvParameters ) {
 //++++++++++++++++++++++++++++++++++++++
 
 void loop() {
-  
+
 }
 
 //++++++++++++++++++++++++++++++++++++++
@@ -299,6 +329,10 @@ void setup() {
     }
     updateCallback();
   }
+  pinMode(LED,OUTPUT);
+  digitalWrite(LED,LOW);
+  pinMode(LED2,OUTPUT);
+  digitalWrite(LED2,LOW);
 }
 
 //++++++++++++++++++++++++++++++++++++++
@@ -518,6 +552,28 @@ void iniciarModem() {
       }
     }
   }
+  //******************************
+  /*
+  if(DEBUGGPRS){
+    Consola.println(" OK");
+    Consola.print(F("Conectadose a (APN):"));
+    if (strcmp(apn, "claro")){
+      Consola.print(F(" Claro Argentina"));
+    }
+  }
+  if (!modem.gprsConnect(apn, user, pass)) {
+    if(DEBUGGPRS){
+      Consola.println(F(" Fallo"));
+    }
+    while (true);
+  }
+  if(DEBUGGPRS){
+    Consola.println(F(" OK"));
+  }
+  */
+}
+
+void iniciarAPN() {
   if(DEBUGGPRS){
     Consola.println(" OK");
     Consola.print(F("Conectadose a (APN):"));
