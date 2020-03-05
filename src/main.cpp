@@ -20,7 +20,6 @@
 //*********** CONFIG **************
 //*********************************
 
-#define WIFI_PIN 0
 WiFiManager wifiManager;
 
 //++++++++++++++++++++++++++++++++++++++
@@ -38,10 +37,10 @@ WiFiClient wifiClient;
 //++++++++++ DEFINICIONES ++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
-#define DEBUG false
+#define DEBUG true
 #define DEBUGGPS false
 #define DEBUGSD false
-#define DEBUGGPRS false
+#define DEBUGGPRS true
 #define DEBUGWIFI false
 String NAME_FILE = "/GPSLOG.txt";
 
@@ -57,8 +56,9 @@ String NAME_FILE = "/GPSLOG.txt";
 //#define A9G_POFF    2  //ESP12 GPIO15 A9/A9G POWOFF
 //#define A9G_WAKE    22  //ESP12 GPIO13 A9/A9G WAKE
 //#define A9G_LOWP    23  //ESP12 GPIO2 A9/A9G ENTER LOW POWER MODULE
-#define LED    0
-#define LED2    2
+#define ledRedMovil    2  //
+#define ledApn    32       //
+#define ledMqtt   0      //
 
 //unsigned long periodoUpdate = 604800000; // periodo de actualización semanal
 unsigned long periodoUpdate = 15000;
@@ -80,6 +80,8 @@ int inicia = 1;
 const int periodoRefresh = 15000;
 long tActual = 0;
 char mensaje[22] = "0,0";
+bool modemIniciado = false;
+bool gpsIniciado = false;
 
 //++++++++++++++++++++++++++++++++++++++
 //++++++++++++ INSTANCIAS ++++++++++++++
@@ -104,7 +106,7 @@ String hora;
 //++++++++++++ VARIABLES +++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
-bool newData = false, mensajeListo = false;
+bool newData = false;
 
 //************************************
 //***** DECLARACION FUNCIONES ********
@@ -128,6 +130,8 @@ void appendFile(fs::FS &fs, const char * path, const char * message);
 void updateCallback();
 String lee(int addr);
 void graba(int addr, String a);
+bool mqttConnect();
+void mqttDisconnect();
 
 //++++++++++++++++++++++++++++++++++++++
 //++++++++++++ LOOP GPS ++++++++++++++++
@@ -142,6 +146,9 @@ void loop2( void * pvParameters ) {
       sdInit();
     }
     */
+    while(!gpsIniciado){
+      delay(100);
+    }
     for (unsigned long start = millis(); millis() - start < 1000;){
       while (serialGps.available()) {
         char c = serialGps.read();
@@ -153,7 +160,7 @@ void loop2( void * pvParameters ) {
         }
       }
     }
-    if(DEBUG){
+    if(DEBUGGPS){
       Consola.println(newData);
     }
     if (newData){
@@ -169,7 +176,6 @@ void loop2( void * pvParameters ) {
       logSDCard(NAME_FILE.c_str());
     }
     coordenada.toCharArray(mensaje, 22);
-    mensajeListo = true;
     newData = false;
     if(DEBUG){
       Consola.print(F("Coordenada detectada: "));
@@ -222,51 +228,58 @@ void loop3( void * pvParameters ) {
     // }
     //**************************************
   for (;;) {
-    if(modem.isNetworkConnected()){
-      if(DEBUGGPRS){
-        Consola.println("conectado a la red claro");
-      }
-      digitalWrite(LED,HIGH);
-    }
-    else {
-      if(DEBUGGPRS){
-        Consola.println("no conectado a la red claro");
-      }
-      iniciarModem();
-      digitalWrite(LED,LOW);
-    }
-    if(modem.isGprsConnected()){
-      if(DEBUGGPRS){
-        Consola.println("APN conectada");
-      }
-      digitalWrite(LED2,HIGH);
-    }
-    else {
-      if(DEBUGGPRS){
-        Consola.println("APN no conectada");
-      }
-      iniciarAPN();
-      digitalWrite(LED2,LOW);
-    }
     if (millis() > tActual + periodoRefresh) {
-      //A9GMQTTCONNECT();
-      tActual = millis();
-      String topic = "/gps/coordenadas";
-      if(DEBUG){
-        Consola.println(topic);
+      if(modem.isNetworkConnected()){
+        if(DEBUGGPRS){
+          Consola.println("conectado a la red claro");
+        }
+        digitalWrite(ledRedMovil,HIGH);
       }
-      String payload = mensaje;
-      if(DEBUG){
-        Consola.println(payload);
+      else {
+        if(DEBUGGPRS){
+          Consola.println("no conectado a la red claro");
+        }
+        iniciarModem();
+        digitalWrite(ledRedMovil,LOW);
       }
-      String ATCMD = "AT+MQTTPUB=";
-      String cammand = ATCMD + "\"" + topic + "\"" + "," + "\"" + payload + "\"" + ",0,0,0";
-      if(DEBUG){
-        Consola.println(cammand);
+      if(modem.isGprsConnected()){
+        if(DEBUGGPRS){
+          Consola.println("APN conectada");
+        }
+        digitalWrite(ledApn,HIGH);
+        modemIniciado = true;
       }
-      sendData(cammand, 1000, DEBUG);
-    }
+      else {
+        if(DEBUGGPRS){
+          Consola.println("APN no conectada");
+        }
+        iniciarAPN();
+        digitalWrite(ledApn,LOW);
+      }
 
+      if(mqttConnect()){
+        digitalWrite(ledMqtt,HIGH);
+        tActual = millis();
+        String topic = "/gps/coordenadas";
+        if(DEBUG){
+          Consola.println(topic);
+        }
+        String payload = mensaje;
+        if(DEBUG){
+          Consola.println(payload);
+        }
+        String ATCMD = "AT+MQTTPUB=";
+        String cammand = ATCMD + "\"" + topic + "\"" + "," + "\"" + payload + "\"" + ",0,0,0";
+        if(DEBUG){
+          Consola.println(cammand);
+        }
+        sendData(cammand, 1000, DEBUG);
+        mqttDisconnect();
+      }
+      else{
+        digitalWrite(ledMqtt,LOW);
+      }
+    }
   }
   vTaskDelay(10);
 }
@@ -286,7 +299,7 @@ void loop() {
 void setup() {
   xTaskCreatePinnedToCore(
     loop2,   /* Task function. */
-      "Task2",     /* name of task. */
+      "loopGps",     /* name of task. */
       10000,       /* Stack size of task */
       NULL,        /* parameter of the task */
       1,           /* priority of the task */
@@ -296,7 +309,7 @@ void setup() {
 
   xTaskCreatePinnedToCore(
     loop3,   /* Task function. */
-      "Task3",     /* name of task. */
+      "loopGprs",     /* name of task. */
       10000,       /* Stack size of task */
       NULL,        /* parameter of the task */
       1,           /* priority of the task */
@@ -310,7 +323,6 @@ void setup() {
   EEPROM.begin(4096);
 
   randomSeed(analogRead(0));
-  pinMode(WIFI_PIN,INPUT_PULLUP);
 
   wifiManager.setConfigPortalTimeout(AP_TIMEOUT);
   wifiManager.setDebugOutput(DEBUGWIFI);
@@ -329,10 +341,28 @@ void setup() {
     }
     updateCallback();
   }
-  pinMode(LED,OUTPUT);
-  digitalWrite(LED,LOW);
-  pinMode(LED2,OUTPUT);
-  digitalWrite(LED2,LOW);
+  pinMode(ledRedMovil,OUTPUT);
+  pinMode(ledApn,OUTPUT);
+  pinMode(ledMqtt,OUTPUT);
+  digitalWrite(ledRedMovil,HIGH);
+  digitalWrite(ledApn,HIGH);
+  digitalWrite(ledMqtt,HIGH);
+  delay(300);
+  digitalWrite(ledRedMovil,LOW);
+  digitalWrite(ledApn,LOW);
+  digitalWrite(ledMqtt,LOW);
+  delay(300);
+  digitalWrite(ledRedMovil,HIGH);
+  digitalWrite(ledApn,HIGH);
+  digitalWrite(ledMqtt,HIGH);
+  delay(300);
+  digitalWrite(ledRedMovil,LOW);
+  digitalWrite(ledApn,LOW);
+  digitalWrite(ledMqtt,LOW);
+  delay(300);
+
+  //pinMode(ledGps,OUTPUT);
+  //digitalWrite(ledGps,LOW);
 }
 
 //++++++++++++++++++++++++++++++++++++++
@@ -352,8 +382,6 @@ String sendData(String command, const int timeout, boolean debug){
       char c = serialGprs.read();
       response += c;
     }
-    //Consola.print("respuesta: ");
-    //Consola.print(response);
   }
   if (debug) {
     Consola.print("respuesta: ");
@@ -369,6 +397,7 @@ int GPSPOWERON() {
     if(DEBUGGPS){
       Consola.println("GPS encendido");
     }
+    gpsIniciado = true;
     return 1;
   }
   else {
@@ -438,19 +467,19 @@ void A9GMQTTCONNECT() {
   sendData("AT+CGATT=1", 1000, DEBUG);
   unsigned long now = millis();
   while(millis() - now < 1000);
-  //delay(1000);
   sendData("AT+CGDCONT=1,\"IP\",\"igprs.claro.com.ar\"", 1000, DEBUG);
   now = millis();
   while(millis() - now < 1000);
-  //delay(1000);
   sendData("AT+CGACT=1,1", 1000, DEBUG);
   now = millis();
   while(millis() - now < 1000);
-  //delay(1000);
+
+  /*
   sendData("AT+MQTTDISCONN", 1000, DEBUG);
   now = millis();
   while(millis() - now < 2000);
-  //delay(2000);
+  */
+  /*
   String peticion = "AT+MQTTCONN=\"190.7.57.163\",1883,\"DHT11\",120,1";
   String msg = sendData(peticion, 1000, DEBUG);
   if(DEBUG){
@@ -458,7 +487,6 @@ void A9GMQTTCONNECT() {
   }
   now = millis();
   while(millis() - now < 1000);
-  //delay(1000);
   if ( msg.indexOf("OK") >= 0 ) {
     Consola.println("CONECTADO AL BROKEER");
   }
@@ -466,31 +494,37 @@ void A9GMQTTCONNECT() {
     Consola.print("ERROR AL CONECTAR AL BROKER ");
     Consola.println(msg);
   }
-  Consola.println(msg);
   now = millis();
   while(millis() - now < 2000);
-  //delay(2000);
+  */
 }
 
-/*
-void iniciarSd() {
-  if(DEBUGSD){
-    Consola.print(F("Inicializando SD..."));
+bool mqttConnect(){
+  String peticion = "AT+MQTTCONN=\"190.7.57.163\",1883,\"DHT11\",120,1";
+  String msg = sendData(peticion, 1000, DEBUG);
+  if(DEBUG){
+    Consola.println(peticion);
   }
-  if (!SD.begin(SD_CS)) {
-    if(DEBUGSD){
-      Consola.println(F("Verificar que exista una SD."));
-    }
-    microSD = false;
+  unsigned long now = millis();
+  while(millis() - now < 1000);
+  if ( msg.indexOf("OK") >= 0 ) {
+    Consola.println("CONECTADO AL BROKEER");
+    return true;
   }
-  else {
-    if(DEBUGSD){
-      Consola.println(F("SD inicializada."));
-    }
-    microSD = true;
+  else if(msg.indexOf("+CME ERROR:") >= 0){
+    Consola.print("ERROR AL CONECTAR AL BROKER ");
+    Consola.println(msg);
+    return false;
   }
+  now = millis();
+  while(millis() - now < 2000);
 }
-*/
+
+void mqttDisconnect(){
+  sendData("AT+MQTTDISCONN", 1000, DEBUG);
+  unsigned long now = millis();
+  while(millis() - now < 2000);
+}
 
 static void print_date(TinyGPS &gps) {
   int year;
@@ -553,24 +587,6 @@ void iniciarModem() {
     }
   }
   //******************************
-  /*
-  if(DEBUGGPRS){
-    Consola.println(" OK");
-    Consola.print(F("Conectadose a (APN):"));
-    if (strcmp(apn, "claro")){
-      Consola.print(F(" Claro Argentina"));
-    }
-  }
-  if (!modem.gprsConnect(apn, user, pass)) {
-    if(DEBUGGPRS){
-      Consola.println(F(" Fallo"));
-    }
-    while (true);
-  }
-  if(DEBUGGPRS){
-    Consola.println(F(" OK"));
-  }
-  */
 }
 
 void iniciarAPN() {
