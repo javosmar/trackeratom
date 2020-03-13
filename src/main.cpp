@@ -38,10 +38,10 @@ WiFiClient wifiClient;
 //++++++++++++++++++++++++++++++++++++++
 
 #define DEBUG true
-#define DEBUGGPS false
-#define DEBUGSD false
+#define DEBUGGPS true
+#define DEBUGSD true
 #define DEBUGGPRS true
-#define DEBUGWIFI false
+#define DEBUGWIFI true
 String NAME_FILE = "/GPSLOG.txt";
 
 #define serialGprs Serial2
