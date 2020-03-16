@@ -27,7 +27,7 @@ WiFiManager wifiManager;
 //++++++++++++++++++++++++++++++++++++++
 
 String Cliente = "SH_Nodemcu_v2";                                               // Nombre de producción
-String NewVersion = "0.7";                                                      // Número de la próxima versión a la que se actualizará en el futuro
+String NewVersion = "0.8";                                                      // Número de la próxima versión a la que se actualizará en el futuro
 String url_server = "http://iotoro.000webhostapp.com/firms/" + Cliente;
 String url_sketch = url_server+"/"+Cliente+"_"+NewVersion+".bin";               // Ruta de la nueva versión, a la que se añade el número de la nueva versión
 bool updateAvailable = true;
@@ -38,7 +38,7 @@ WiFiClient wifiClient;
 //++++++++++++++++++++++++++++++++++++++
 
 #define DEBUG true
-#define DEBUGGPS false
+#define DEBUGGPS true
 #define DEBUGSD false
 #define DEBUGGPRS true
 #define DEBUGWIFI false
