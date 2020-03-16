@@ -320,6 +320,7 @@ void setup() {
   serialGps.begin(GPS_BAUD_RATE);
   Consola.begin(BAUD_RATE);
   serialGprs.begin(A9_BAUD_RATE);
+  /*
   EEPROM.begin(4096);
 
   randomSeed(analogRead(0));
@@ -341,6 +342,7 @@ void setup() {
     }
     updateCallback();
   }
+  */
   pinMode(ledRedMovil,OUTPUT);
   pinMode(ledApn,OUTPUT);
   pinMode(ledMqtt,OUTPUT);
