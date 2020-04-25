@@ -26,7 +26,7 @@ WiFiManager wifiManager;
 //+++++++++ VARIABLES OTA ++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
-String Cliente = "SH_Nodemcu_v2";                                               // Nombre de producción
+String Cliente = "trackerAtom";                                               // Nombre de producción
 String NewVersion = "0.7";                                                      // Número de la próxima versión a la que se actualizará en el futuro
 String url_server = "http://iotoro.000webhostapp.com/firms/" + Cliente;
 String url_sketch = url_server+"/"+Cliente+"_"+NewVersion+".bin";               // Ruta de la nueva versión, a la que se añade el número de la nueva versión
@@ -37,11 +37,11 @@ WiFiClient wifiClient;
 //++++++++++ DEFINICIONES ++++++++++++++
 //++++++++++++++++++++++++++++++++++++++
 
-#define DEBUG true
+#define DEBUG false
 #define DEBUGGPS true
-#define DEBUGSD true
-#define DEBUGGPRS true
-#define DEBUGWIFI true
+#define DEBUGSD false
+#define DEBUGGPRS false
+#define DEBUGWIFI false
 String NAME_FILE = "/GPSLOG.txt";
 
 #define serialGprs Serial2
@@ -174,6 +174,9 @@ void loop2( void * pvParameters ) {
       coordenada += String(flon, 6);
       velocidad = String(vel, 2);
       logSDCard(NAME_FILE.c_str());
+    }
+    else{
+      Consola.println("No se recibió coordenada válida.");
     }
     coordenada.toCharArray(mensaje, 22);
     newData = false;
@@ -320,7 +323,7 @@ void setup() {
   serialGps.begin(GPS_BAUD_RATE);
   Consola.begin(BAUD_RATE);
   serialGprs.begin(A9_BAUD_RATE);
-  /*
+
   EEPROM.begin(4096);
 
   randomSeed(analogRead(0));
@@ -342,7 +345,7 @@ void setup() {
     }
     updateCallback();
   }
-  */
+
   pinMode(ledRedMovil,OUTPUT);
   pinMode(ledApn,OUTPUT);
   pinMode(ledMqtt,OUTPUT);
